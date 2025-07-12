@@ -1,57 +1,105 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Plus, UserPlus, DollarSign, TrendingUp, TrendingDown } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 
-function Friends() {
+function Friends({ user }) {
   const navigate = useNavigate()
   const [showAddFriend, setShowAddFriend] = useState(false)
   const [newFriendName, setNewFriendName] = useState('')
   const [newFriendEmail, setNewFriendEmail] = useState('')
+  const [friends, setFriends] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  // Mock friends data with balances
-  const [friends, setFriends] = useState([
-    {
-      id: 1,
-      name: 'John Doe',
-      email: 'john@example.com',
-      balance: 45.50,
-      avatar: 'J'
-    },
-    {
-      id: 2,
-      name: 'Jane Smith',
-      email: 'jane@example.com',
-      balance: -22.75,
-      avatar: 'J'
-    },
-    {
-      id: 3,
-      name: 'Mike Johnson',
-      email: 'mike@example.com',
-      balance: 0,
-      avatar: 'M'
+  useEffect(() => {
+    const fetchFriends = async () => {
+      if (!user?.id) return
+      
+      setLoading(true)
+      setError('')
+      
+      try {
+        const { data, error } = await supabase
+          .from('friends')
+          .select('friend_id, users:friend_id(full_name, email, id)')
+          .eq('user_id', user.id)
+        
+        if (error) throw error
+        
+        setFriends(data.map(f => f.users))
+      } catch (err) {
+        setError(err.message || 'Failed to load friends')
+      } finally {
+        setLoading(false)
+      }
     }
-  ])
 
-  const handleAddFriend = (e) => {
+    fetchFriends()
+  }, [user?.id])
+
+  const handleAddFriend = async (e) => {
     e.preventDefault()
     if (!newFriendName.trim() || !newFriendEmail.trim()) {
       alert('Please fill in both name and email')
       return
     }
 
-    const newFriend = {
-      id: Date.now(),
-      name: newFriendName,
-      email: newFriendEmail,
-      balance: 0,
-      avatar: newFriendName.charAt(0).toUpperCase()
-    }
+    try {
+      // First, find or create the friend user
+      const { data: friendUser, error: userError } = await supabase
+        .from('users')
+        .select('id, full_name, email')
+        .eq('email', newFriendEmail)
+        .single()
 
-    setFriends(prev => [...prev, newFriend])
-    setNewFriendName('')
-    setNewFriendEmail('')
-    setShowAddFriend(false)
+      if (userError && userError.code !== 'PGRST116') {
+        throw userError
+      }
+
+      let friendId
+      if (!friendUser) {
+        // Create new user if they don't exist
+        const { data: newUser, error: createError } = await supabase
+          .from('users')
+          .insert([{ 
+            full_name: newFriendName, 
+            email: newFriendEmail 
+          }])
+          .select('id, full_name, email')
+          .single()
+
+        if (createError) throw createError
+        friendId = newUser.id
+      } else {
+        friendId = friendUser.id
+      }
+
+      // Add friend relationship
+      const { error: friendError } = await supabase
+        .from('friends')
+        .insert([{
+          user_id: user.id,
+          friend_id: friendId
+        }])
+
+      if (friendError) throw friendError
+
+      // Refresh friends list
+      const { data: updatedFriends, error: fetchError } = await supabase
+        .from('friends')
+        .select('friend_id, users:friend_id(full_name, email, id)')
+        .eq('user_id', user.id)
+
+      if (fetchError) throw fetchError
+
+      setFriends(updatedFriends.map(f => f.users))
+      setNewFriendName('')
+      setNewFriendEmail('')
+      setShowAddFriend(false)
+    } catch (err) {
+      alert(err.message || 'Failed to add friend')
+    }
   }
 
   const getBalanceColor = (balance) => {
@@ -153,55 +201,86 @@ function Friends() {
           </div>
         )}
 
-        <div className="friends-list">
-          {friends.map(friend => (
-            <div key={friend.id} className="friend-item">
-              <div className="friend-info">
-                <div className="friend-avatar">
-                  {friend.avatar}
-                </div>
-                <div>
-                  <h4>{friend.name}</h4>
-                  <p style={{ color: '#718096', fontSize: '14px' }}>{friend.email}</p>
-                </div>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '8px',
-                  color: getBalanceColor(friend.balance),
-                  fontWeight: 'bold'
-                }}>
-                  {getBalanceIcon(friend.balance)}
-                  ${Math.abs(friend.balance).toFixed(2)}
-                </div>
-                <p style={{ 
-                  fontSize: '12px', 
-                  color: getBalanceColor(friend.balance),
-                  margin: '4px 0 0 0'
-                }}>
-                  {getBalanceText(friend.balance)}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {friends.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>
-            <UserPlus size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
-            <h3>No friends yet</h3>
-            <p>Add your first friend to start splitting expenses!</p>
-            <button
-              onClick={() => setShowAddFriend(true)}
-              className="btn"
-              style={{ marginTop: '16px' }}
-            >
-              <UserPlus size={16} style={{ marginRight: '8px' }} />
-              Add Your First Friend
-            </button>
+        {loading && (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <div style={{ 
+              width: '32px', 
+              height: '32px', 
+              border: '3px solid #e2e8f0',
+              borderTop: '3px solid #667eea',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+              margin: '0 auto 16px'
+            }}></div>
+            Loading friends...
           </div>
+        )}
+
+        {error && (
+          <div style={{ 
+            padding: '12px', 
+            backgroundColor: '#fee', 
+            color: '#c53030', 
+            borderRadius: '8px', 
+            marginBottom: '20px'
+          }}>
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && (
+          <>
+            {friends.length > 0 ? (
+              <div className="friends-list">
+                {friends.map(friend => (
+                  <div key={friend.id} className="friend-item">
+                    <div className="friend-info">
+                      <div className="friend-avatar">
+                        {friend.full_name?.charAt(0) || 'U'}
+                      </div>
+                      <div>
+                        <h4>{friend.full_name || 'Unknown User'}</h4>
+                        <p style={{ color: '#718096', fontSize: '14px' }}>{friend.email}</p>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '8px',
+                        color: '#718096',
+                        fontWeight: 'bold'
+                      }}>
+                        <DollarSign size={16} />
+                        $0.00
+                      </div>
+                      <p style={{ 
+                        fontSize: '12px', 
+                        color: '#718096',
+                        margin: '4px 0 0 0'
+                      }}>
+                        No expenses yet
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>
+                <UserPlus size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
+                <h3>No friends yet</h3>
+                <p>Add your first friend to start splitting expenses!</p>
+                <button
+                  onClick={() => setShowAddFriend(true)}
+                  className="btn"
+                  style={{ marginTop: '16px' }}
+                >
+                  <UserPlus size={16} style={{ marginRight: '8px' }} />
+                  Add Your First Friend
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

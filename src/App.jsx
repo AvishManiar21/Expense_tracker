@@ -29,11 +29,7 @@ function App() {
   console.log('VITE_SUPABASE_URL:', import.meta.env.VITE_SUPABASE_URL)
   console.log('VITE_SUPABASE_ANON_KEY:', import.meta.env.VITE_SUPABASE_ANON_KEY)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
-  const [user, setUser] = useState({
-    id: 1,
-    email: 'you@example.com',
-    name: 'You'
-  })
+  const [user, setUser] = useState(null)
 
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -53,23 +49,7 @@ function App() {
     }
   }, [])
 
-  const handleLogin = (email, password) => {
-    setIsAuthenticated(true)
-    setUser({
-      id: 1,
-      email: email,
-      name: 'You'
-    })
-  }
 
-  const handleSignUp = (email, password, name) => {
-    setIsAuthenticated(true)
-    setUser({
-      id: 1,
-      email: email,
-      name: name
-    })
-  }
 
   const handleSignOut = async () => {
     console.log('App.jsx: handleSignOut called')
@@ -99,7 +79,7 @@ function App() {
             element={
               isAuthenticated ? 
               <Navigate to="/dashboard" replace /> : 
-              <Login onLogin={handleLogin} />
+              <Login />
             } 
           />
           <Route 
@@ -107,7 +87,7 @@ function App() {
             element={
               isAuthenticated ? 
               <Navigate to="/dashboard" replace /> : 
-              <SignUp onSignUp={handleSignUp} />
+              <SignUp />
             } 
           />
           <Route 
@@ -130,7 +110,7 @@ function App() {
             path="/friends" 
             element={
               <ProtectedRoute>
-                <Friends />
+                <Friends user={user} />
               </ProtectedRoute>
             } 
           />
@@ -138,7 +118,7 @@ function App() {
             path="/groups" 
             element={
               <ProtectedRoute>
-                <Groups />
+                <Groups user={user} />
               </ProtectedRoute>
             } 
           />

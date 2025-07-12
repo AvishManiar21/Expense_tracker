@@ -1,71 +1,137 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Plus, Users, DollarSign } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 
-function Groups() {
+function Groups({ user }) {
   const navigate = useNavigate()
   const [showAddGroup, setShowAddGroup] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
   const [selectedFriends, setSelectedFriends] = useState([])
+  const [groups, setGroups] = useState([])
+  const [availableFriends, setAvailableFriends] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  // Mock groups data
-  const [groups, setGroups] = useState([
-    {
-      id: 1,
-      name: 'Apartment',
-      members: ['You', 'John Doe', 'Jane Smith'],
-      totalExpenses: 1250.75,
-      yourBalance: -45.50,
-      avatar: '🏠'
-    },
-    {
-      id: 2,
-      name: 'Vacation',
-      members: ['You', 'John Doe', 'Mike Johnson'],
-      totalExpenses: 890.25,
-      yourBalance: 67.80,
-      avatar: '✈️'
-    },
-    {
-      id: 3,
-      name: 'Dinner Club',
-      members: ['You', 'Jane Smith', 'Mike Johnson', 'Sarah Wilson'],
-      totalExpenses: 320.00,
-      yourBalance: 0,
-      avatar: '🍽️'
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user?.id) return
+      
+      setLoading(true)
+      setError('')
+      
+      try {
+        // Fetch groups where user is a member
+        const { data: groupMembers, error: groupMembersError } = await supabase
+          .from('group_members')
+          .select('group_id')
+          .eq('user_id', user.id)
+        
+        if (groupMembersError) throw groupMembersError
+        
+        const groupIds = groupMembers.map(gm => gm.group_id)
+        
+        if (groupIds.length > 0) {
+          const { data: groupsData, error: groupsError } = await supabase
+            .from('groups')
+            .select('*')
+            .in('id', groupIds)
+          
+          if (groupsError) throw groupsError
+          setGroups(groupsData)
+        }
+
+        // Fetch available friends
+        const { data: friendsData, error: friendsError } = await supabase
+          .from('friends')
+          .select('friend_id, users:friend_id(full_name, email, id)')
+          .eq('user_id', user.id)
+        
+        if (friendsError) throw friendsError
+        setAvailableFriends(friendsData.map(f => f.users))
+      } catch (err) {
+        setError(err.message || 'Failed to load data')
+      } finally {
+        setLoading(false)
+      }
     }
-  ])
 
-  // Mock friends for adding to groups
-  const availableFriends = ['John Doe', 'Jane Smith', 'Mike Johnson', 'Sarah Wilson']
+    fetchData()
+  }, [user?.id])
 
-  const handleAddGroup = (e) => {
+  const handleAddGroup = async (e) => {
     e.preventDefault()
     if (!newGroupName.trim() || selectedFriends.length === 0) {
       alert('Please enter a group name and select at least one member')
       return
     }
 
-    const newGroup = {
-      id: Date.now(),
-      name: newGroupName,
-      members: ['You', ...selectedFriends],
-      totalExpenses: 0,
-      yourBalance: 0,
-      avatar: '👥'
-    }
+    try {
+      // Create the group
+      const { data: newGroup, error: groupError } = await supabase
+        .from('groups')
+        .insert([{
+          name: newGroupName,
+          created_by: user.id
+        }])
+        .select('id, name')
+        .single()
 
-    setGroups(prev => [...prev, newGroup])
-    setNewGroupName('')
-    setSelectedFriends([])
-    setShowAddGroup(false)
+      if (groupError) throw groupError
+
+      // Add current user as member
+      await supabase
+        .from('group_members')
+        .insert([{
+          group_id: newGroup.id,
+          user_id: user.id
+        }])
+
+      // Add selected friends as members
+      const memberInserts = selectedFriends.map(friendId => ({
+        group_id: newGroup.id,
+        user_id: friendId
+      }))
+
+      if (memberInserts.length > 0) {
+        await supabase
+          .from('group_members')
+          .insert(memberInserts)
+      }
+
+      // Refresh groups list
+      const { data: groupMembers, error: groupMembersError } = await supabase
+        .from('group_members')
+        .select('group_id')
+        .eq('user_id', user.id)
+
+      if (groupMembersError) throw groupMembersError
+
+      const groupIds = groupMembers.map(gm => gm.group_id)
+
+      if (groupIds.length > 0) {
+        const { data: groupsData, error: groupsError } = await supabase
+          .from('groups')
+          .select('*')
+          .in('id', groupIds)
+
+        if (groupsError) throw groupsError
+        setGroups(groupsData)
+      }
+
+      setNewGroupName('')
+      setSelectedFriends([])
+      setShowAddGroup(false)
+    } catch (err) {
+      alert(err.message || 'Failed to create group')
+    }
   }
 
-  const toggleFriend = (friendName) => {
-    if (selectedFriends.includes(friendName)) {
-      setSelectedFriends(prev => prev.filter(name => name !== friendName))
+  const toggleFriend = (friendId) => {
+    if (selectedFriends.includes(friendId)) {
+      setSelectedFriends(prev => prev.filter(id => id !== friendId))
     } else {
-      setSelectedFriends(prev => [...prev, friendName])
+      setSelectedFriends(prev => [...prev, friendId])
     }
   }
 
@@ -138,17 +204,17 @@ function Groups() {
                   <label>Add Members</label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '10px' }}>
                     {availableFriends.map(friend => (
-                      <div key={friend} className="friend-item">
+                      <div key={friend.id} className="friend-item">
                         <div className="friend-info">
                           <div className="friend-avatar">
-                            {friend.charAt(0)}
+                            {friend.full_name?.charAt(0) || 'U'}
                           </div>
-                          <span>{friend}</span>
+                          <span>{friend.full_name || 'Unknown User'}</span>
                         </div>
                         <input
                           type="checkbox"
-                          checked={selectedFriends.includes(friend)}
-                          onChange={() => toggleFriend(friend)}
+                          checked={selectedFriends.includes(friend.id)}
+                          onChange={() => toggleFriend(friend.id)}
                         />
                       </div>
                     ))}
@@ -172,85 +238,114 @@ function Groups() {
           </div>
         )}
 
-        <div className="groups-list">
-          {groups.map(group => (
-            <div 
-              key={group.id} 
-              className="group-item" 
-              onClick={() => navigate(`/group/${group.id}`)}
-              style={{ 
-                border: '1px solid #e2e8f0', 
-                borderRadius: '12px', 
-                padding: '20px', 
-                marginBottom: '16px',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                hover: {
-                  backgroundColor: '#f7fafc',
-                  transform: 'translateY(-2px)',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                }
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{ 
-                    fontSize: '24px', 
-                    width: '48px', 
-                    height: '48px', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
+        {loading && (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <div style={{ 
+              width: '32px', 
+              height: '32px', 
+              border: '3px solid #e2e8f0',
+              borderTop: '3px solid #667eea',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+              margin: '0 auto 16px'
+            }}></div>
+            Loading groups...
+          </div>
+        )}
+
+        {error && (
+          <div style={{ 
+            padding: '12px', 
+            backgroundColor: '#fee', 
+            color: '#c53030', 
+            borderRadius: '8px', 
+            marginBottom: '20px'
+          }}>
+            {error}
+          </div>
+        )}
+
+        {!loading && !error && (
+          <div className="groups-list">
+            {groups.map(group => (
+              <div 
+                key={group.id} 
+                className="group-item" 
+                onClick={() => navigate(`/group/${group.id}`)}
+                style={{ 
+                  border: '1px solid #e2e8f0', 
+                  borderRadius: '12px', 
+                  padding: '20px', 
+                  marginBottom: '16px',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  hover: {
                     backgroundColor: '#f7fafc',
-                    borderRadius: '12px'
-                  }}>
-                    {group.avatar}
-                  </div>
-                  <div>
-                    <h3 style={{ margin: '0 0 4px 0' }}>{group.name}</h3>
-                    <p style={{ 
-                      color: '#718096', 
-                      fontSize: '14px', 
-                      margin: '0 0 8px 0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}>
-                      <Users size={14} />
-                      {group.members.length} members
-                    </p>
+                    transform: 'translateY(-2px)',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+                  }
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div style={{ 
+                      fontSize: '24px', 
+                      width: '48px', 
+                      height: '48px', 
                       display: 'flex', 
                       alignItems: 'center', 
-                      gap: '6px',
-                      color: '#718096',
-                      fontSize: '14px'
+                      justifyContent: 'center',
+                      backgroundColor: '#f7fafc',
+                      borderRadius: '12px'
                     }}>
-                      <DollarSign size={14} />
-                      Total: ${group.totalExpenses.toFixed(2)}
+                      👥
+                    </div>
+                    <div>
+                      <h3 style={{ margin: '0 0 4px 0' }}>{group.name}</h3>
+                      <p style={{ 
+                        color: '#718096', 
+                        fontSize: '14px', 
+                        margin: '0 0 8px 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <Users size={14} />
+                        Group
+                      </p>
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        color: '#718096',
+                        fontSize: '14px'
+                      }}>
+                        <DollarSign size={14} />
+                        Total: $0.00
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ 
-                    fontSize: '18px',
-                    fontWeight: 'bold',
-                    color: getBalanceColor(group.yourBalance)
-                  }}>
-                    ${Math.abs(group.yourBalance).toFixed(2)}
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ 
+                      fontSize: '18px',
+                      fontWeight: 'bold',
+                      color: '#718096'
+                    }}>
+                      $0.00
+                    </div>
+                    <p style={{ 
+                      fontSize: '12px', 
+                      color: '#718096',
+                      margin: '4px 0 0 0'
+                    }}>
+                      No expenses yet
+                    </p>
                   </div>
-                  <p style={{ 
-                    fontSize: '12px', 
-                    color: getBalanceColor(group.yourBalance),
-                    margin: '4px 0 0 0'
-                  }}>
-                    {getBalanceText(group.yourBalance)}
-                  </p>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
 
         {groups.length === 0 && (
           <div style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>
