@@ -18,9 +18,11 @@ export const getExpenses = async () => {
 }
 
 export const createExpense = async (expenseData) => {
+  const { data: { user } } = await supabase.auth.getUser();
+  // Always set created_by to the current user's id
   const { data: expense, error: expenseError } = await supabase
     .from('expenses')
-    .insert(expenseData)
+    .insert({ ...expenseData, created_by: user.id })
     .select()
     .single()
 
@@ -30,7 +32,7 @@ export const createExpense = async (expenseData) => {
   if (expenseData.splits && expenseData.splits.length > 0) {
     const splits = expenseData.splits.map(split => ({
       expense_id: expense.id,
-      user_id: split.personId,
+      user_id: split.personId, // This should be the correct user for each split
       amount: split.amount
     }))
 
@@ -80,7 +82,7 @@ export const addFriend = async (friendEmail) => {
   const { error } = await supabase
     .from('friends')
     .insert({
-      user_id: user.id,
+      user_id: user.id, // Always set to current user
       friend_id: friendUser.id
     })
 
@@ -119,7 +121,7 @@ export const createGroup = async (groupData) => {
     .insert({
       name: groupData.name,
       description: groupData.description,
-      created_by: user.id
+      created_by: user.id // Always set to current user
     })
     .select()
     .single()
@@ -130,7 +132,7 @@ export const createGroup = async (groupData) => {
   if (groupData.members && groupData.members.length > 0) {
     const members = groupData.members.map(memberId => ({
       group_id: group.id,
-      user_id: memberId
+      user_id: memberId // Each member's user_id
     }))
 
     const { error: membersError } = await supabase

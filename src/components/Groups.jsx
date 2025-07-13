@@ -68,11 +68,12 @@ function Groups({ user }) {
 
     try {
       // Create the group
+      const { data: { user } } = await supabase.auth.getUser();
       const { data: newGroup, error: groupError } = await supabase
         .from('groups')
         .insert([{
           name: newGroupName,
-          created_by: user.id
+          created_by: user.id // Always set!
         }])
         .select('id, name')
         .single()
@@ -84,13 +85,13 @@ function Groups({ user }) {
         .from('group_members')
         .insert([{
           group_id: newGroup.id,
-          user_id: user.id
+          user_id: user.id // Always set!
         }])
 
       // Add selected friends as members
       const memberInserts = selectedFriends.map(friendId => ({
         group_id: newGroup.id,
-        user_id: friendId
+        user_id: friendId // Always set!
       }))
 
       if (memberInserts.length > 0) {

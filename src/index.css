@@ -883,3 +883,28 @@ body {
     font-size: 1.6rem;
   }
 } 
+
+@media (max-width: 600px) {
+  .dashboard-header-mobile {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 8px !important;
+    padding: 8px 0;
+  }
+  .dashboard-header-mobile h1 {
+    font-size: 1.2rem !important;
+    text-align: left;
+  }
+  .dashboard-header-mobile p {
+    font-size: 0.95rem !important;
+    text-align: left;
+  }
+  .signout-btn-mobile {
+    width: 100%;
+    min-width: 0 !important;
+    font-size: 1.1rem !important;
+    padding: 14px 0 !important;
+    border-radius: 12px !important;
+    margin-top: 8px !important;
+  }
+} 

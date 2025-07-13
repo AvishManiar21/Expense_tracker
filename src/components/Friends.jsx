@@ -59,20 +59,10 @@ function Friends({ user }) {
 
       let friendId
       if (!friendUser) {
-        // Create new user if they don't exist
-        const { data: newUser, error: createError } = await supabase
-          .from('users')
-          .insert([{ 
-            full_name: newFriendName, 
-            email: newFriendEmail 
-          }])
-          .select('id, full_name, email')
-          .single()
-
-        if (createError) throw createError
-        friendId = newUser.id
+        alert('User not found. Please ask your friend to sign up first.');
+        return;
       } else {
-        friendId = friendUser.id
+        friendId = friendUser.id;
       }
 
       // Add friend relationship

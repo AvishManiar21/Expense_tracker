@@ -121,29 +121,26 @@ function Dashboard({ user, onSignOut }) {
 
   return (
     <div className="container">
-      <div className="header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h1>💰 Expense Tracker</h1>
-          <p>Welcome back, {user?.name || 'User'}!</p>
+      <div className="header dashboard-header-mobile" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ fontSize: '1.5rem', margin: 0, wordBreak: 'break-word' }}>💰 Expense Tracker</h1>
+          <p style={{ fontSize: '1rem', margin: 0, color: '#4a5568' }}>Welcome back, {user?.name || 'User'}!</p>
         </div>
         <button
-          className="btn btn-secondary"
+          className="btn btn-secondary signout-btn-mobile"
           onClick={async () => {
             setSigningOut(true)
             setSignOutError('')
-            console.log('Sign out button clicked')
             try {
               await onSignOut()
-              console.log('Sign out successful')
-              navigate('/login')
+              navigate('/login', { replace: true })
             } catch (err) {
               setSignOutError(err.message || 'Sign out failed')
-              console.error('Sign out error:', err)
             } finally {
               setSigningOut(false)
             }
           }}
-          style={{ height: 40 }}
+          style={{ height: 48, fontSize: 18, minWidth: 120, borderRadius: 10, padding: '0 24px', marginTop: 8 }}
           disabled={signingOut}
         >
           {signingOut ? 'Signing Out...' : 'Sign Out'}
