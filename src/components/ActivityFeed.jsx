@@ -1,84 +1,76 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Filter, DollarSign, Plus, Minus, Users, Calendar } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 
-function ActivityFeed() {
+function ActivityFeed({ user }) {
   const navigate = useNavigate()
   const [selectedFilter, setSelectedFilter] = useState('all')
   const [selectedFriend, setSelectedFriend] = useState('all')
+  const [activities, setActivities] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [friends, setFriends] = useState([])
+  const [groups, setGroups] = useState([])
 
-  // Mock activity data
-  const [activities] = useState([
-    {
-      id: 1,
-      type: 'expense_added',
-      description: 'Dinner at Italian Restaurant',
-      amount: 120.00,
-      paidBy: 'You',
-      date: '2024-01-15T19:30:00',
-      category: 'Food',
-      friends: ['John Doe', 'Jane Smith'],
-      group: 'Dinner Club'
-    },
-    {
-      id: 2,
-      type: 'settlement',
-      description: 'Settled up with John Doe',
-      amount: 45.50,
-      paidBy: 'You',
-      date: '2024-01-15T14:20:00',
-      category: 'Settlement',
-      friends: ['John Doe'],
-      paymentMethod: 'Cash'
-    },
-    {
-      id: 3,
-      type: 'expense_added',
-      description: 'Movie tickets',
-      amount: 45.00,
-      paidBy: 'John Doe',
-      date: '2024-01-14T20:15:00',
-      category: 'Entertainment',
-      friends: ['You'],
-      group: 'Entertainment'
-    },
-    {
-      id: 4,
-      type: 'expense_edited',
-      description: 'Uber ride - Updated amount',
-      amount: 35.00,
-      paidBy: 'Jane Smith',
-      date: '2024-01-13T16:45:00',
-      category: 'Transport',
-      friends: ['You'],
-      group: 'Transport'
-    },
-    {
-      id: 5,
-      type: 'expense_added',
-      description: 'Groceries',
-      amount: 85.75,
-      paidBy: 'You',
-      date: '2024-01-12T10:30:00',
-      category: 'Food',
-      friends: ['Mike Johnson', 'Jane Smith'],
-      group: 'Apartment'
-    },
-    {
-      id: 6,
-      type: 'settlement',
-      description: 'Received payment from Jane Smith',
-      amount: 22.75,
-      paidBy: 'Jane Smith',
-      date: '2024-01-11T18:00:00',
-      category: 'Settlement',
-      friends: ['You'],
-      paymentMethod: 'Venmo'
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user?.id) return
+      setLoading(true)
+      setError('')
+      try {
+        // Fetch friends
+        const { data: friendsData, error: friendsError } = await supabase
+          .from('friends')
+          .select('friend_id, users:friend_id(full_name, email, id)')
+          .eq('user_id', user.id)
+        if (friendsError) throw friendsError
+        const realFriends = friendsData.map(f => f.users)
+        setFriends(realFriends)
+
+        // Fetch groups
+        const { data: groupMembers, error: groupMembersError } = await supabase
+          .from('group_members')
+          .select('group_id')
+          .eq('user_id', user.id)
+        if (groupMembersError) throw groupMembersError
+        const groupIds = groupMembers.map(gm => gm.group_id)
+        let groupList = []
+        if (groupIds.length > 0) {
+          const { data: groupsData, error: groupsError } = await supabase
+            .from('groups')
+            .select('id, name')
+            .in('id', groupIds)
+          if (groupsError) throw groupsError
+          groupList = groupsData
+        }
+        setGroups(groupList)
+
+        // Fetch expenses involving the user
+        const { data: expenses, error: expensesError } = await supabase
+          .from('expenses')
+          .select('*')
+          .or(`created_by.eq.${user.id},paid_by.eq.${user.id}`)
+        if (expensesError) throw expensesError
+
+        // Fetch settlements (if you have a settlements table, otherwise skip)
+        // const { data: settlements, error: settlementsError } = await supabase
+        //   .from('settlements')
+        //   .select('*')
+        //   .or(`from_user.eq.${user.id},to_user.eq.${user.id}`)
+        // if (settlementsError) throw settlementsError
+
+        // Combine activities (expenses + settlements)
+        // For now, just use expenses as activities
+        setActivities(expenses)
+      } catch (err) {
+        setError(err.message || 'Failed to load activity')
+      } finally {
+        setLoading(false)
+      }
     }
-  ])
-
-  const friends = ['John Doe', 'Jane Smith', 'Mike Johnson']
-  const groups = ['Apartment', 'Dinner Club', 'Entertainment', 'Transport']
+    fetchData()
+  }, [user])
 
   const getActivityIcon = (type) => {
     switch (type) {
@@ -206,124 +198,132 @@ function ActivityFeed() {
           >
             <option value="all">All People</option>
             {friends.map(friend => (
-              <option key={friend} value={friend}>{friend}</option>
+              <option key={friend.id} value={friend.full_name}>{friend.full_name}</option>
             ))}
           </select>
         </div>
 
         {/* Activity List */}
         <div className="activity-list">
-          {filteredActivities.map(activity => (
-            <div key={activity.id} className="activity-item" style={{
-              border: '1px solid #e2e8f0',
-              borderRadius: '12px',
-              padding: '16px',
-              marginBottom: '12px',
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: '12px',
-              transition: 'all 0.2s ease'
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px' }}>
+              <p>Loading activities...</p>
+            </div>
+          ) : error ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: 'red' }}>
+              Error: {error}
+            </div>
+          ) : filteredActivities.length === 0 ? (
+            <div style={{ 
+              textAlign: 'center', 
+              padding: '40px', 
+              color: '#718096',
+              backgroundColor: '#f8f9fa',
+              borderRadius: '12px'
             }}>
-              <div style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                backgroundColor: getActivityColor(activity.type) + '20',
+              <Calendar size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
+              <h3>No activities found</h3>
+              <p>Try adjusting your filters or add some expenses to see activity here.</p>
+            </div>
+          ) : (
+            filteredActivities.map(activity => (
+              <div key={activity.id} className="activity-item" style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: '12px',
+                padding: '16px',
+                marginBottom: '12px',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0
+                alignItems: 'flex-start',
+                gap: '12px',
+                transition: 'all 0.2s ease'
               }}>
-                {getActivityIcon(activity.type)}
-              </div>
-
-              <div style={{ flex: 1 }}>
-                <div style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'flex-start',
-                  marginBottom: '8px'
+                <div style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  backgroundColor: getActivityColor(activity.type) + '20',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
                 }}>
-                  <div>
-                    <p style={{ 
-                      margin: '0 0 4px 0', 
-                      fontWeight: '500',
-                      color: getActivityColor(activity.type)
+                  {getActivityIcon(activity.type)}
+                </div>
+
+                <div style={{ flex: 1 }}>
+                  <div style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'flex-start',
+                    marginBottom: '8px'
+                  }}>
+                    <div>
+                      <p style={{ 
+                        margin: '0 0 4px 0', 
+                        fontWeight: '500',
+                        color: getActivityColor(activity.type)
+                      }}>
+                        {getActivityText(activity)}
+                      </p>
+                      <div style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        gap: '12px',
+                        fontSize: '13px',
+                        color: '#718096'
+                      }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <Calendar size={12} />
+                          {formatDate(activity.date)} at {formatTime(activity.date)}
+                        </span>
+                        {activity.category && (
+                          <span style={{ 
+                            backgroundColor: '#f7fafc', 
+                            padding: '2px 8px', 
+                            borderRadius: '12px',
+                            fontSize: '12px'
+                          }}>
+                            {activity.category}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ 
+                      fontWeight: 'bold',
+                      color: getActivityColor(activity.type),
+                      fontSize: '16px'
                     }}>
-                      {getActivityText(activity)}
-                    </p>
+                      ${activity.amount.toFixed(2)}
+                    </div>
+                  </div>
+
+                  {activity.friends && activity.friends.length > 0 && (
                     <div style={{ 
                       display: 'flex', 
                       alignItems: 'center', 
-                      gap: '12px',
+                      gap: '8px',
                       fontSize: '13px',
                       color: '#718096'
                     }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Calendar size={12} />
-                        {formatDate(activity.date)} at {formatTime(activity.date)}
-                      </span>
-                      {activity.category && (
-                        <span style={{ 
-                          backgroundColor: '#f7fafc', 
-                          padding: '2px 8px', 
-                          borderRadius: '12px',
-                          fontSize: '12px'
-                        }}>
-                          {activity.category}
-                        </span>
-                      )}
+                      <Users size={12} />
+                      <span>Split with: {activity.friends.join(', ')}</span>
                     </div>
-                  </div>
-                  <div style={{ 
-                    fontWeight: 'bold',
-                    color: getActivityColor(activity.type),
-                    fontSize: '16px'
-                  }}>
-                    ${activity.amount.toFixed(2)}
-                  </div>
+                  )}
+
+                  {activity.group && (
+                    <div style={{ 
+                      fontSize: '13px', 
+                      color: '#718096',
+                      marginTop: '4px'
+                    }}>
+                      Group: {activity.group}
+                    </div>
+                  )}
                 </div>
-
-                {activity.friends && activity.friends.length > 0 && (
-                  <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '8px',
-                    fontSize: '13px',
-                    color: '#718096'
-                  }}>
-                    <Users size={12} />
-                    <span>Split with: {activity.friends.join(', ')}</span>
-                  </div>
-                )}
-
-                {activity.group && (
-                  <div style={{ 
-                    fontSize: '13px', 
-                    color: '#718096',
-                    marginTop: '4px'
-                  }}>
-                    Group: {activity.group}
-                  </div>
-                )}
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
-
-        {filteredActivities.length === 0 && (
-          <div style={{ 
-            textAlign: 'center', 
-            padding: '40px', 
-            color: '#718096',
-            backgroundColor: '#f8f9fa',
-            borderRadius: '12px'
-          }}>
-            <Calendar size={48} style={{ marginBottom: '16px', opacity: 0.5 }} />
-            <h3>No activities found</h3>
-            <p>Try adjusting your filters or add some expenses to see activity here.</p>
-          </div>
-        )}
 
         {/* Activity Summary */}
         <div style={{ 

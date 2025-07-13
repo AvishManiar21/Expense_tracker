@@ -11,6 +11,8 @@ function Friends({ user }) {
   const [friends, setFriends] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [addLoading, setAddLoading] = useState(false)
+  const [addSuccess, setAddSuccess] = useState('')
 
   useEffect(() => {
     const fetchFriends = async () => {
@@ -40,31 +42,36 @@ function Friends({ user }) {
 
   const handleAddFriend = async (e) => {
     e.preventDefault()
-    if (!newFriendName.trim() || !newFriendEmail.trim()) {
-      alert('Please fill in both name and email')
+    if (!newFriendEmail.trim()) {
+      alert('Please enter an email')
       return
     }
-
+    setAddLoading(true)
+    setAddSuccess('')
     try {
-      // First, find or create the friend user
+      // Check if already a friend
+      if (friends.some(f => f.email === newFriendEmail)) {
+        setAddLoading(false)
+        alert('This user is already your friend.')
+        return
+      }
+      // Find the friend user
       const { data: friendUser, error: userError } = await supabase
         .from('users')
         .select('id, full_name, email')
         .eq('email', newFriendEmail)
         .single()
-
       if (userError && userError.code !== 'PGRST116') {
         throw userError
       }
-
       let friendId
       if (!friendUser) {
-        alert('User not found. Please ask your friend to sign up first.');
-        return;
+        setAddLoading(false)
+        alert('User not found. Please ask your friend to sign up first.')
+        return
       } else {
-        friendId = friendUser.id;
+        friendId = friendUser.id
       }
-
       // Add friend relationship
       const { error: friendError } = await supabase
         .from('friends')
@@ -72,23 +79,25 @@ function Friends({ user }) {
           user_id: user.id,
           friend_id: friendId
         }])
-
-      if (friendError) throw friendError
-
+      if (friendError) {
+        setAddLoading(false)
+        alert(friendError.message || 'Failed to add friend')
+        return
+      }
       // Refresh friends list
       const { data: updatedFriends, error: fetchError } = await supabase
         .from('friends')
         .select('friend_id, users:friend_id(full_name, email, id)')
         .eq('user_id', user.id)
-
       if (fetchError) throw fetchError
-
       setFriends(updatedFriends.map(f => f.users))
-      setNewFriendName('')
       setNewFriendEmail('')
       setShowAddFriend(false)
+      setAddSuccess('Friend added successfully!')
     } catch (err) {
       alert(err.message || 'Failed to add friend')
+    } finally {
+      setAddLoading(false)
     }
   }
 
@@ -148,21 +157,12 @@ function Friends({ user }) {
                   onClick={() => setShowAddFriend(false)}
                   className="btn btn-secondary"
                   style={{ padding: '8px' }}
+                  disabled={addLoading}
                 >
                   ✕
                 </button>
               </div>
               <form onSubmit={handleAddFriend}>
-                <div className="form-group">
-                  <label>Name</label>
-                  <input
-                    type="text"
-                    className="input"
-                    value={newFriendName}
-                    onChange={(e) => setNewFriendName(e.target.value)}
-                    placeholder="Friend's name"
-                  />
-                </div>
                 <div className="form-group">
                   <label>Email</label>
                   <input
@@ -171,6 +171,7 @@ function Friends({ user }) {
                     value={newFriendEmail}
                     onChange={(e) => setNewFriendEmail(e.target.value)}
                     placeholder="friend@example.com"
+                    disabled={addLoading}
                   />
                 </div>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
@@ -178,17 +179,20 @@ function Friends({ user }) {
                     type="button"
                     className="btn btn-secondary"
                     onClick={() => setShowAddFriend(false)}
+                    disabled={addLoading}
                   >
                     Cancel
                   </button>
-                  <button type="submit" className="btn">
-                    <Plus size={16} style={{ marginRight: '8px' }} />
-                    Add Friend
+                  <button type="submit" className="btn" disabled={addLoading}>
+                    {addLoading ? 'Adding...' : (<><Plus size={16} style={{ marginRight: '8px' }} />Add Friend</>)}
                   </button>
                 </div>
               </form>
             </div>
           </div>
+        )}
+        {addSuccess && (
+          <div style={{ textAlign: 'center', color: '#38a169', margin: '16px 0' }}>{addSuccess}</div>
         )}
 
         {loading && (

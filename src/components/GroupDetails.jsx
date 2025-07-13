@@ -1,73 +1,69 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Plus, Users, DollarSign, Calendar, Tag, Pencil, Trash2 } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 
-function GroupDetails() {
+function GroupDetails({ user }) {
   const navigate = useNavigate()
   const { groupId } = useParams()
+  const [group, setGroup] = useState(null)
+  const [members, setMembers] = useState([])
+  const [expenses, setExpenses] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [showAddExpense, setShowAddExpense] = useState(false)
   const [editingExpense, setEditingExpense] = useState(null)
 
-  // Mock group data - in real app this would come from API
-  const [group, setGroup] = useState({
-    id: groupId,
-    name: 'Apartment',
-    avatar: '🏠',
-    description: 'Shared apartment expenses',
-    createdAt: '2024-01-01',
-    members: [
-      { id: 1, name: 'You', email: 'you@example.com', avatar: 'Y', balance: -45.50 },
-      { id: 2, name: 'John Doe', email: 'john@example.com', avatar: 'J', balance: 22.75 },
-      { id: 3, name: 'Jane Smith', email: 'jane@example.com', avatar: 'J', balance: 22.75 }
-    ],
-    expenses: [
-      {
-        id: 1,
-        description: 'Rent',
-        amount: 1200.00,
-        paidBy: 'You',
-        date: '2024-01-15',
-        category: 'Bills',
-        splitType: 'equal',
-        splits: [
-          { personName: 'You', amount: 400.00 },
-          { personName: 'John Doe', amount: 400.00 },
-          { personName: 'Jane Smith', amount: 400.00 }
-        ]
-      },
-      {
-        id: 2,
-        description: 'Electricity Bill',
-        amount: 150.00,
-        paidBy: 'John Doe',
-        date: '2024-01-14',
-        category: 'Bills',
-        splitType: 'equal',
-        splits: [
-          { personName: 'You', amount: 50.00 },
-          { personName: 'John Doe', amount: 50.00 },
-          { personName: 'Jane Smith', amount: 50.00 }
-        ]
-      },
-      {
-        id: 3,
-        description: 'Groceries',
-        amount: 85.75,
-        paidBy: 'You',
-        date: '2024-01-12',
-        category: 'Food',
-        splitType: 'equal',
-        splits: [
-          { personName: 'You', amount: 28.58 },
-          { personName: 'John Doe', amount: 28.58 },
-          { personName: 'Jane Smith', amount: 28.59 }
-        ]
-      }
-    ]
-  })
+  useEffect(() => {
+    const fetchGroupDetails = async () => {
+      setLoading(true)
+      setError('')
+      try {
+        // Fetch group info
+        const { data: groupData, error: groupError } = await supabase
+          .from('groups')
+          .select('*')
+          .eq('id', groupId)
+          .single()
+        if (groupError) throw groupError
+        setGroup(groupData)
 
-  const totalExpenses = group.expenses.reduce((sum, expense) => sum + expense.amount, 0)
-  const yourBalance = group.members.find(m => m.name === 'You')?.balance || 0
+        // Fetch group members
+        const { data: membersData, error: membersError } = await supabase
+          .from('group_members')
+          .select('user_id, users(full_name, email, id)')
+          .eq('group_id', groupId)
+        if (membersError) throw membersError
+        setMembers(membersData.map(m => m.users))
+
+        // Fetch group expenses
+        const { data: expensesData, error: expensesError } = await supabase
+          .from('expenses')
+          .select('*')
+          .eq('group_id', groupId)
+        if (expensesError) throw expensesError
+        setExpenses(expensesData)
+      } catch (err) {
+        setError(err.message || 'Failed to load group details')
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchGroupDetails()
+  }, [groupId])
+
+  if (loading) {
+    return <div className="container"><div className="header"><h1>Loading group...</h1></div></div>
+  }
+  if (error) {
+    return <div className="container"><div className="header"><h1>Error</h1><p>{error}</p></div></div>
+  }
+  if (!group) {
+    return <div className="container"><div className="header"><h1>Group not found</h1></div></div>
+  }
+
+  const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0)
+  const yourBalance = members.find(m => m.id === user?.id)?.balance || 0
 
   const getBalanceColor = (balance) => {
     if (balance > 0) return '#38a169'
@@ -106,10 +102,8 @@ function GroupDetails() {
   }
 
   const handleSaveEdit = (updatedExpense) => {
-    setGroup(prev => ({
-      ...prev,
-      expenses: prev.expenses.map(e => e.id === updatedExpense.id ? updatedExpense : e)
-    }))
+    // In a real app, you would update the expense in the database
+    console.log('Saving edited expense:', updatedExpense)
     setEditingExpense(null)
   }
 
@@ -169,7 +163,7 @@ function GroupDetails() {
           }}>
             <div style={{ fontSize: '24px', marginBottom: '8px' }}>👥</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold' }}>
-              {group.members.length}
+              {members.length}
             </div>
             <div style={{ color: '#718096', fontSize: '14px' }}>
               Members
@@ -206,7 +200,7 @@ function GroupDetails() {
             gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
             gap: '12px' 
           }}>
-            {group.members.map(member => (
+            {members.map(member => (
               <div key={member.id} className="friend-item">
                 <div className="friend-info">
                   <div className="friend-avatar">
@@ -259,7 +253,7 @@ function GroupDetails() {
           </div>
 
           <div className="expenses-list">
-            {group.expenses.map(expense => (
+            {expenses.map(expense => (
               <div key={expense.id} className="expense-item" style={{
                 border: '1px solid #e2e8f0',
                 borderRadius: '12px',
@@ -333,7 +327,7 @@ function GroupDetails() {
             ))}
           </div>
 
-          {group.expenses.length === 0 && (
+          {expenses.length === 0 && (
             <div style={{ 
               textAlign: 'center', 
               padding: '40px', 
@@ -402,7 +396,7 @@ function GroupDetails() {
               expense={editingExpense} 
               onSave={handleSaveEdit} 
               onCancel={() => setEditingExpense(null)} 
-              members={group.members.map(m => m.name)}
+              members={members.map(m => m.full_name)}
             />
           </div>
         </div>

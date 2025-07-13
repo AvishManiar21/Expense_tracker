@@ -1,37 +1,39 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, DollarSign, CheckCircle, AlertCircle } from 'lucide-react'
+import { supabase } from '../lib/supabase'
 
-function SettleUp() {
+function SettleUp({ user }) {
   const navigate = useNavigate()
+  const [friends, setFriends] = useState([])
   const [selectedFriend, setSelectedFriend] = useState(null)
   const [settlementAmount, setSettlementAmount] = useState('')
   const [settlementMethod, setSettlementMethod] = useState('cash')
 
-  // Mock friends with balances
-  const [friends, setFriends] = useState([
-    {
-      id: 1,
-      name: 'John Doe',
-      balance: 45.50,
-      avatar: 'J',
-      email: 'john@example.com'
-    },
-    {
-      id: 2,
-      name: 'Jane Smith',
-      balance: -22.75,
-      avatar: 'J',
-      email: 'jane@example.com'
-    },
-    {
-      id: 3,
-      name: 'Mike Johnson',
-      balance: 0,
-      avatar: 'M',
-      email: 'mike@example.com'
+  useEffect(() => {
+    const fetchFriends = async () => {
+      if (!user?.id) return
+      // Fetch friends and their balances from Supabase
+      // This assumes you have a balance field or can calculate it
+      // For demo, just fetch friends
+      const { data, error } = await supabase
+        .from('friends')
+        .select('friend_id, users:friend_id(full_name, email, id)')
+        .eq('user_id', user.id)
+      if (error) {
+        setFriends([])
+        return
+      }
+      // You may want to fetch balances from another table or RPC
+      // For now, just set friends with zero balance
+      const realFriends = data.map(f => ({
+        ...f.users,
+        balance: 0 // TODO: Replace with real balance if available
+      }))
+      setFriends(realFriends)
     }
-  ])
+    fetchFriends()
+  }, [user])
 
   const getBalanceColor = (balance) => {
     if (balance > 0) return '#38a169'
@@ -59,16 +61,9 @@ function SettleUp() {
       return
     }
 
-    // Update friend balance (mock)
-    setFriends(prev => prev.map(friend => 
-      friend.id === selectedFriend.id 
-        ? { ...friend, balance: 0 }
-        : friend
-    ))
-
     // In real app, this would create a payment record
-    console.log(`Settled up with ${selectedFriend.name}: $${amount} via ${settlementMethod}`)
-    
+    // and update balances accordingly
+    alert(`Settled up with ${selectedFriend.full_name}: $${amount} via ${settlementMethod}`)
     setSelectedFriend(null)
     setSettlementAmount('')
     setSettlementMethod('cash')
@@ -143,10 +138,10 @@ function SettleUp() {
             <div key={friend.id} className="friend-item">
               <div className="friend-info">
                 <div className="friend-avatar">
-                  {friend.avatar}
+                  {friend.full_name?.charAt(0) || 'U'}
                 </div>
                 <div>
-                  <h4 style={{ margin: '0 0 4px 0' }}>{friend.name}</h4>
+                  <h4 style={{ margin: '0 0 4px 0' }}>{friend.full_name}</h4>
                   <p style={{ color: '#718096', fontSize: '14px', margin: '0' }}>
                     {friend.email}
                   </p>
@@ -167,150 +162,71 @@ function SettleUp() {
                 <div style={{ fontSize: '12px', color: getBalanceColor(friend.balance) }}>
                   {getBalanceText(friend.balance)}
                 </div>
-                {friend.balance !== 0 && (
-                  <button
-                    className="btn"
-                    style={{ 
-                      padding: '6px 12px', 
-                      fontSize: '13px', 
-                      marginTop: '8px',
-                      backgroundColor: friend.balance > 0 ? '#e53e3e' : '#38a169'
-                    }}
-                    onClick={() => handleSettleUp(friend)}
-                  >
-                    Settle Up
-                  </button>
-                )}
-                {friend.balance === 0 && (
-                  <div style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '4px',
-                    color: '#38a169',
-                    fontSize: '12px',
-                    marginTop: '8px'
-                  }}>
-                    <CheckCircle size={12} />
-                    Settled
-                  </div>
-                )}
+                <button
+                  className="btn"
+                  style={{ 
+                    padding: '6px 12px', 
+                    fontSize: '13px', 
+                    marginTop: '8px',
+                    backgroundColor: '#3182ce',
+                    color: 'white'
+                  }}
+                  onClick={() => handleSettleUp(friend)}
+                >
+                  Settle Up
+                </button>
               </div>
             </div>
           ))}
         </div>
 
-        {friends.every(friend => friend.balance === 0) && (
-          <div style={{ 
-            textAlign: 'center', 
-            padding: '40px', 
-            color: '#718096',
-            backgroundColor: '#f8f9fa',
-            borderRadius: '12px',
-            marginTop: '20px'
-          }}>
-            <CheckCircle size={48} style={{ marginBottom: '16px', color: '#38a169' }} />
-            <h3>All settled up!</h3>
-            <p>Everyone is square. No outstanding balances.</p>
+        {/* Settle Up Modal */}
+        {selectedFriend && (
+          <div className="modal-overlay">
+            <div className="modal">
+              <h3>Settle Up with {selectedFriend.full_name}</h3>
+              <div className="form-group">
+                <label>Amount</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={settlementAmount}
+                  onChange={e => setSettlementAmount(e.target.value)}
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+              <div className="form-group">
+                <label>Method</label>
+                <select
+                  className="input"
+                  value={settlementMethod}
+                  onChange={e => setSettlementMethod(e.target.value)}
+                >
+                  <option value="cash">Cash</option>
+                  <option value="bank">Bank Transfer</option>
+                  <option value="upi">UPI</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '20px' }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => setSelectedFriend(null)}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn"
+                  onClick={handleConfirmSettlement}
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
-
-      {/* Settlement Modal */}
-      {selectedFriend && (
-        <div className="modal-overlay">
-          <div className="modal">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3>Settle Up with {selectedFriend.name}</h3>
-              <button
-                onClick={() => setSelectedFriend(null)}
-                className="btn btn-secondary"
-                style={{ padding: '8px' }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ 
-                padding: '15px', 
-                backgroundColor: getBalanceColor(selectedFriend.balance) === '#e53e3e' ? '#fed7d7' : '#c6f6d5',
-                borderRadius: '8px',
-                marginBottom: '15px'
-              }}>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '8px',
-                  marginBottom: '8px'
-                }}>
-                  {selectedFriend.balance > 0 ? <AlertCircle size={16} /> : <CheckCircle size={16} />}
-                  <strong>
-                    {selectedFriend.balance > 0 
-                      ? `You owe ${selectedFriend.name} $${selectedFriend.balance.toFixed(2)}`
-                      : `${selectedFriend.name} owes you $${Math.abs(selectedFriend.balance).toFixed(2)}`
-                    }
-                  </strong>
-                </div>
-                <p style={{ margin: '0', fontSize: '14px', color: '#4a5568' }}>
-                  {selectedFriend.balance > 0 
-                    ? 'Mark this debt as paid to settle up.'
-                    : 'Mark this payment as received to settle up.'
-                  }
-                </p>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label>Amount</label>
-              <input
-                type="number"
-                className="input"
-                value={settlementAmount}
-                onChange={(e) => setSettlementAmount(e.target.value)}
-                placeholder="0.00"
-                step="0.01"
-                min="0"
-                max={Math.abs(selectedFriend.balance)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Payment Method</label>
-              <select
-                className="input"
-                value={settlementMethod}
-                onChange={(e) => setSettlementMethod(e.target.value)}
-              >
-                <option value="cash">Cash</option>
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="paypal">PayPal</option>
-                <option value="venmo">Venmo</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setSelectedFriend(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={handleConfirmSettlement}
-                style={{ 
-                  backgroundColor: selectedFriend.balance > 0 ? '#e53e3e' : '#38a169'
-                }}
-              >
-                Confirm Settlement
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
