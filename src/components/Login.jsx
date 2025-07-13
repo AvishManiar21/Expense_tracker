@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Mail, Lock, Eye, EyeOff } from 'lucide-react'
+import { Mail, Lock, Eye, EyeOff, TrendingUp, Users, CreditCard } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 
 function Login({ onLogin }) {
@@ -44,89 +44,143 @@ function Login({ onLogin }) {
   }
 
   return (
-    <div className="container">
-      <div className="auth-container">
-        <div className="auth-card">
-          <div className="auth-header">
-            <h1>Welcome Back</h1>
-            <p>Sign in to your expense tracker account</p>
+    <div className="login-container">
+      <div className="login-background">
+        <div className="login-background-pattern"></div>
+      </div>
+      
+      <div className="login-content">
+        <div className="login-card">
+          <div className="login-header">
+            <div className="login-logo">
+              <TrendingUp size={32} className="logo-icon" />
+              <h1>ExpenseTracker</h1>
+            </div>
+            <h2>Welcome back</h2>
+            <p>Sign in to manage your expenses and split bills with friends</p>
           </div>
 
           {error && (
-            <div className="error-message">
-              {error}
+            <div className="error-message login-error">
+              <div className="error-icon">⚠️</div>
+              <div className="error-text">{error}</div>
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit} className="login-form">
             <div className="form-group">
-              <label>Email</label>
+              <label className="form-label">Email address</label>
               <div className="input-with-icon">
-                <Mail size={16} />
+                <Mail size={18} className="input-icon" />
                 <input
                   type="email"
-                  className="input"
+                  className="login-input"
                   value={formData.email}
                   onChange={(e) => handleInputChange('email', e.target.value)}
                   placeholder="Enter your email"
                   disabled={isLoading}
+                  autoComplete="email"
                 />
               </div>
             </div>
 
             <div className="form-group">
-              <label>Password</label>
+              <label className="form-label">Password</label>
               <div className="input-with-icon">
-                <Lock size={16} />
+                <Lock size={18} className="input-icon" />
                 <input
                   type={showPassword ? 'text' : 'password'}
-                  className="input"
+                  className="login-input"
                   value={formData.password}
                   onChange={(e) => handleInputChange('password', e.target.value)}
                   placeholder="Enter your password"
                   disabled={isLoading}
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="password-toggle"
+                  className="password-toggle login-password-toggle"
                   disabled={isLoading}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
-                  {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
             </div>
 
             <button
               type="submit"
-              className="btn"
+              className="login-btn"
               disabled={isLoading}
-              style={{ width: '100%', marginTop: '20px' }}
             >
-              {isLoading ? 'Signing in...' : 'Sign In'}
+              {isLoading ? (
+                <div className="loading-spinner">
+                  <div className="spinner"></div>
+                  <span>Signing in...</span>
+                </div>
+              ) : (
+                'Sign In'
+              )}
             </button>
           </form>
 
-          <div className="auth-footer">
+          <div className="login-footer">
             <p>
               Don't have an account?{' '}
-              <Link to="/signup" className="link">
-                Sign up
+              <Link to="/signup" className="login-link">
+                Create account
               </Link>
             </p>
           </div>
 
-          <div style={{ 
-            marginTop: '30px', 
-            padding: '15px', 
-            backgroundColor: '#f8f9fa', 
-            borderRadius: '8px',
-            fontSize: '14px',
-            color: '#718096'
-          }}>
-            <strong>Demo Credentials:</strong><br />
-            Email: demo@example.com<br />
-            Password: password
+          <div className="demo-credentials">
+            <div className="demo-header">
+              <span className="demo-icon">🎯</span>
+              <strong>Try the demo</strong>
+            </div>
+            <div className="demo-content">
+              <div className="demo-field">
+                <span className="demo-label">Email:</span>
+                <span className="demo-value">demo@example.com</span>
+              </div>
+              <div className="demo-field">
+                <span className="demo-label">Password:</span>
+                <span className="demo-value">password</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="login-features">
+          <div className="feature-item">
+            <div className="feature-icon">
+              <TrendingUp size={24} />
+            </div>
+            <div className="feature-content">
+              <h3>Track Expenses</h3>
+              <p>Monitor your spending with detailed analytics and insights</p>
+            </div>
+          </div>
+          
+          <div className="feature-item">
+            <div className="feature-icon">
+              <Users size={24} />
+            </div>
+            <div className="feature-content">
+              <h3>Split Bills</h3>
+              <p>Easily split expenses with friends and family</p>
+            </div>
+          </div>
+          
+          <div className="feature-item">
+            <div className="feature-icon">
+              <CreditCard size={24} />
+            </div>
+            <div className="feature-content">
+              <h3>Smart Categories</h3>
+              <p>Organize expenses with intelligent categorization</p>
+            </div>
           </div>
         </div>
       </div>
