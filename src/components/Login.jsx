@@ -133,23 +133,6 @@ function Login({ onLogin }) {
               </Link>
             </p>
           </div>
-
-          <div className="demo-credentials">
-            <div className="demo-header">
-              <span className="demo-icon">🎯</span>
-              <strong>Try the demo</strong>
-            </div>
-            <div className="demo-content">
-              <div className="demo-field">
-                <span className="demo-label">Email:</span>
-                <span className="demo-value">demo@example.com</span>
-              </div>
-              <div className="demo-field">
-                <span className="demo-label">Password:</span>
-                <span className="demo-value">password</span>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div className="login-features">
