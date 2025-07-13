@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Mail, Lock, Eye, EyeOff, TrendingUp, Users, CreditCard } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { supabase, upsertUserProfile } from '../lib/supabase'
 
 function Login({ onLogin }) {
   const navigate = useNavigate()
@@ -35,6 +35,19 @@ function Login({ onLogin }) {
         password: formData.password
       })
       if (error) throw error
+      // Upsert user profile after successful login
+      if (data.user) {
+        try {
+          await upsertUserProfile(data.user)
+        } catch (upsertError) {
+          // Ignore RLS errors, show friendly message for others
+          if (!upsertError.message?.includes('row-level security policy')) {
+            setError(upsertError.message || 'An error occurred. Please try again.')
+            setIsLoading(false)
+            return
+          }
+        }
+      }
       navigate('/dashboard')
     } catch (err) {
       setError(err.message || 'An error occurred. Please try again.')

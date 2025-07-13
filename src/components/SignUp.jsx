@@ -63,8 +63,7 @@ function SignUp({ onSignUp }) {
         options: { data: { full_name: formData.name } }
       })
       if (error) throw error
-      // Upsert user profile in users table
-      if (data.user) await upsertUserProfile(data.user)
+      // Do NOT upsert user profile here. Upsert should happen after authentication (e.g., after login or in dashboard loader).
       navigate('/dashboard')
     } catch (err) {
       setError(err.message || 'An error occurred. Please try again.')
