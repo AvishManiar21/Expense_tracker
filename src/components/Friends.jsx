@@ -41,63 +41,63 @@ function Friends({ user }) {
   }, [user?.id])
 
   const handleAddFriend = async (e) => {
-    e.preventDefault()
+    e.preventDefault();
     if (!newFriendEmail.trim()) {
-      alert('Please enter an email')
-      return
+      alert('Please enter an email');
+      return;
     }
-    setAddLoading(true)
-    setAddSuccess('')
+    setAddLoading(true);
+    setAddSuccess('');
     try {
       // Check if already a friend
       if (friends.some(f => f.email === newFriendEmail)) {
-        setAddLoading(false)
-        alert('This user is already your friend.')
-        return
+        setAddLoading(false);
+        alert('This user is already your friend.');
+        return;
       }
       // Find the friend user
       const { data: friendUser, error: userError } = await supabase
         .from('users')
         .select('id, full_name, email')
         .eq('email', newFriendEmail)
-        .single()
+        .single();
+      console.log('friendUser:', friendUser, 'userError:', userError);
+
       if (userError && userError.code !== 'PGRST116') {
-        throw userError
+        throw userError;
       }
-      let friendId
       if (!friendUser) {
-        setAddLoading(false)
-        alert('User not found. Please ask your friend to sign up first.')
-        return
-      } else {
-        friendId = friendUser.id
+        setAddLoading(false);
+        alert('User not found. Please ask your friend to sign up first.');
+        return;
       }
       // Add friend relationship
       const { error: friendError } = await supabase
         .from('friends')
-        .insert([{
-          user_id: user.id,
-          friend_id: friendId
-        }])
+        .insert([{ user_id: user.id, friend_id: friendUser.id }]);
+      console.log('friendError:', friendError);
+
       if (friendError) {
-        setAddLoading(false)
-        alert(friendError.message || 'Failed to add friend')
-        return
+        setAddLoading(false);
+        alert(friendError.message || 'Failed to add friend');
+        return;
       }
       // Refresh friends list
       const { data: updatedFriends, error: fetchError } = await supabase
         .from('friends')
         .select('friend_id, users:friend_id(full_name, email, id)')
-        .eq('user_id', user.id)
-      if (fetchError) throw fetchError
-      setFriends(updatedFriends.map(f => f.users))
-      setNewFriendEmail('')
-      setShowAddFriend(false)
-      setAddSuccess('Friend added successfully!')
+        .eq('user_id', user.id);
+      console.log('updatedFriends:', updatedFriends, 'fetchError:', fetchError);
+
+      if (fetchError) throw fetchError;
+      setFriends(updatedFriends.map(f => f.users));
+      setNewFriendEmail('');
+      setShowAddFriend(false);
+      setAddSuccess('Friend added successfully!');
     } catch (err) {
-      alert(err.message || 'Failed to add friend')
+      alert(err.message || 'Failed to add friend');
     } finally {
-      setAddLoading(false)
+      setAddLoading(false);
     }
   }
 
