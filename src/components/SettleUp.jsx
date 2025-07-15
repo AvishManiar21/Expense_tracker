@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, DollarSign, CheckCircle, AlertCircle } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 function SettleUp({ user }) {
   const navigate = useNavigate()
@@ -12,25 +13,15 @@ function SettleUp({ user }) {
 
   useEffect(() => {
     const fetchFriends = async () => {
-      if (!user?.id) return
-      // Fetch friends and their balances from Supabase
-      // This assumes you have a balance field or can calculate it
-      // For demo, just fetch friends
-      const { data, error } = await supabase
-        .from('friends')
-        .select('friend_id, users:friend_id(full_name, email, id)')
-        .eq('user_id', user.id)
-      if (error) {
-        setFriends([])
-        return
-      }
-      // You may want to fetch balances from another table or RPC
-      // For now, just set friends with zero balance
-      const realFriends = data.map(f => ({
-        ...f.users,
-        balance: 0 // TODO: Replace with real balance if available
+      if (!user?.uid) return
+      const friendsQ = query(collection(db, 'friends'), where('user_id', '==', user.uid))
+      const friendsSnap = await getDocs(friendsQ)
+      const friendIds = friendsSnap.docs.map(doc => doc.data().friend_id)
+      const realFriends = await Promise.all(friendIds.map(async (fid) => {
+        const userDoc = await getDoc(doc(db, 'users', fid))
+        return userDoc.exists() ? { ...userDoc.data(), balance: 0 } : null
       }))
-      setFriends(realFriends)
+      setFriends(realFriends.filter(Boolean))
     }
     fetchFriends()
   }, [user])

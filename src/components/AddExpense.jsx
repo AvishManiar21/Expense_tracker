@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Plus } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { collection, query, where, getDocs, addDoc, doc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 function AddExpense({ user }) {
   const navigate = useNavigate()
@@ -21,20 +22,17 @@ function AddExpense({ user }) {
 
   useEffect(() => {
     const fetchFriends = async () => {
-      if (!user?.id) return
-      const { data, error } = await supabase
-        .from('friends')
-        .select('friend_id, users:friend_id(full_name, email, id)')
-        .eq('user_id', user.id)
-      if (error) {
-        setFriends([])
-        return
-      }
-      const realFriends = data.map(f => f.users)
-      setFriends(realFriends)
-      // By default, select the user and all friends
-      setSelectedPeople([{ id: user.id, full_name: 'You', email: user.email }, ...realFriends])
-      setFormData(prev => ({ ...prev, paidBy: user.id }))
+      if (!user?.uid) return
+      const friendsQ = query(collection(db, 'friends'), where('user_id', '==', user.uid))
+      const friendsSnap = await getDocs(friendsQ)
+      const friendIds = friendsSnap.docs.map(doc => doc.data().friend_id)
+      const realFriends = await Promise.all(friendIds.map(async (fid) => {
+        const userDoc = await getDoc(doc(db, 'users', fid))
+        return userDoc.exists() ? userDoc.data() : null
+      }))
+      setFriends(realFriends.filter(Boolean))
+      setSelectedPeople([{ id: user.uid, full_name: 'You', email: user.email }, ...realFriends.filter(Boolean)])
+      setFormData(prev => ({ ...prev, paidBy: user.uid }))
     }
     fetchFriends()
   }, [user])
@@ -218,7 +216,7 @@ function AddExpense({ user }) {
               value={formData.paidBy}
               onChange={(e) => handleInputChange('paidBy', e.target.value)}
             >
-              <option value={user?.id || ''}>You</option>
+              <option value={user?.uid || ''}>You</option>
               {friends.map(friend => (
                 <option key={friend.id} value={friend.id}>{friend.full_name}</option>
               ))}
@@ -230,8 +228,8 @@ function AddExpense({ user }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               <button
                 type="button"
-                className={selectedPeople.some(p => p.id === user?.id) ? 'btn btn-secondary' : 'btn'}
-                onClick={() => togglePerson({ id: user.id, full_name: 'You', email: user.email })}
+                className={selectedPeople.some(p => p.id === user?.uid) ? 'btn btn-secondary' : 'btn'}
+                onClick={() => togglePerson({ id: user.uid, full_name: 'You', email: user.email })}
                 style={{ minWidth: 80 }}
               >
                 You

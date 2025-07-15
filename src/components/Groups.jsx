@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Plus, Users, DollarSign } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { collection, query, where, getDocs, addDoc, doc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 function Groups({ user }) {
   const navigate = useNavigate()
@@ -15,49 +16,41 @@ function Groups({ user }) {
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!user?.id) return
-      
+      if (!user?.uid) return
       setLoading(true)
       setError('')
-      
       try {
-        // Fetch groups where user is a member
-        const { data: groupMembers, error: groupMembersError } = await supabase
-          .from('group_members')
-          .select('group_id')
-          .eq('user_id', user.id)
-        
-        if (groupMembersError) throw groupMembersError
-        
-        const groupIds = groupMembers.map(gm => gm.group_id)
-        
+        // Fetch group memberships for this user
+        const groupMembersQ = query(collection(db, 'group_members'), where('user_id', '==', user.uid))
+        const groupMembersSnap = await getDocs(groupMembersQ)
+        const groupIds = groupMembersSnap.docs.map(doc => doc.data().group_id)
+        let groupsData = []
         if (groupIds.length > 0) {
-          const { data: groupsData, error: groupsError } = await supabase
-            .from('groups')
-            .select('*')
-            .in('id', groupIds)
-          
-          if (groupsError) throw groupsError
-          setGroups(groupsData)
+          // Fetch group details
+          const groupDocs = await Promise.all(groupIds.map(async (gid) => {
+            const gdoc = await getDoc(doc(db, 'groups', gid))
+            return gdoc.exists() ? { id: gid, ...gdoc.data() } : null
+          }))
+          groupsData = groupDocs.filter(Boolean)
         }
-
+        setGroups(groupsData)
         // Fetch available friends
-        const { data: friendsData, error: friendsError } = await supabase
-          .from('friends')
-          .select('friend_id, users:friend_id(full_name, email, id)')
-          .eq('user_id', user.id)
-        
-        if (friendsError) throw friendsError
-        setAvailableFriends(friendsData.map(f => f.users))
+        const friendsQ = query(collection(db, 'friends'), where('user_id', '==', user.uid))
+        const friendsSnap = await getDocs(friendsQ)
+        const friendIds = friendsSnap.docs.map(doc => doc.data().friend_id)
+        const friendProfiles = await Promise.all(friendIds.map(async (fid) => {
+          const userDoc = await getDoc(doc(db, 'users', fid))
+          return userDoc.exists() ? userDoc.data() : null
+        }))
+        setAvailableFriends(friendProfiles.filter(Boolean))
       } catch (err) {
         setError(err.message || 'Failed to load data')
       } finally {
         setLoading(false)
       }
     }
-
     fetchData()
-  }, [user?.id])
+  }, [user?.uid])
 
   const handleAddGroup = async (e) => {
     e.preventDefault()
@@ -68,57 +61,40 @@ function Groups({ user }) {
 
     try {
       // Create the group
-      const { data: { user } } = await supabase.auth.getUser();
-      const { data: newGroup, error: groupError } = await supabase
-        .from('groups')
-        .insert([{
-          name: newGroupName,
-          created_by: user.id // Always set!
-        }])
-        .select('id, name')
-        .single()
-
-      if (groupError) throw groupError
+      const newGroupRef = await addDoc(collection(db, 'groups'), {
+        name: newGroupName,
+        created_by: user.uid // Always set!
+      })
 
       // Add current user as member
-      await supabase
-        .from('group_members')
-        .insert([{
-          group_id: newGroup.id,
-          user_id: user.id // Always set!
-        }])
+      await addDoc(collection(db, 'group_members'), {
+        group_id: newGroupRef.id,
+        user_id: user.uid // Always set!
+      })
 
       // Add selected friends as members
       const memberInserts = selectedFriends.map(friendId => ({
-        group_id: newGroup.id,
+        group_id: newGroupRef.id,
         user_id: friendId // Always set!
       }))
-
-      if (memberInserts.length > 0) {
-        await supabase
-          .from('group_members')
-          .insert(memberInserts)
+      for (const member of memberInserts) {
+        await addDoc(collection(db, 'group_members'), member)
       }
 
       // Refresh groups list
-      const { data: groupMembers, error: groupMembersError } = await supabase
-        .from('group_members')
-        .select('group_id')
-        .eq('user_id', user.id)
+      const groupMembersQ = query(collection(db, 'group_members'), where('user_id', '==', user.uid))
+      const groupMembersSnap = await getDocs(groupMembersQ)
+      const groupIds = groupMembersSnap.docs.map(doc => doc.data().group_id)
 
-      if (groupMembersError) throw groupMembersError
-
-      const groupIds = groupMembers.map(gm => gm.group_id)
-
+      let groupsData = []
       if (groupIds.length > 0) {
-        const { data: groupsData, error: groupsError } = await supabase
-          .from('groups')
-          .select('*')
-          .in('id', groupIds)
-
-        if (groupsError) throw groupsError
-        setGroups(groupsData)
+        const groupDocs = await Promise.all(groupIds.map(async (gid) => {
+          const gdoc = await getDoc(doc(db, 'groups', gid))
+          return gdoc.exists() ? { id: gid, ...gdoc.data() } : null
+        }))
+        groupsData = groupDocs.filter(Boolean)
       }
+      setGroups(groupsData)
 
       setNewGroupName('')
       setSelectedFriends([])
@@ -239,21 +215,6 @@ function Groups({ user }) {
           </div>
         )}
 
-        {loading && (
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <div style={{ 
-              width: '32px', 
-              height: '32px', 
-              border: '3px solid #e2e8f0',
-              borderTop: '3px solid #667eea',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-              margin: '0 auto 16px'
-            }}></div>
-            Loading groups...
-          </div>
-        )}
-
         {error && (
           <div style={{ 
             padding: '12px', 
@@ -266,7 +227,7 @@ function Groups({ user }) {
           </div>
         )}
 
-        {!loading && !error && (
+        {!error && (
           <div className="groups-list">
             {groups.map(group => (
               <div 

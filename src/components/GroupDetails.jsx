@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Plus, Users, DollarSign, Calendar, Tag, Pencil, Trash2 } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 function GroupDetails({ user }) {
   const navigate = useNavigate()
@@ -20,28 +21,22 @@ function GroupDetails({ user }) {
       setError('')
       try {
         // Fetch group info
-        const { data: groupData, error: groupError } = await supabase
-          .from('groups')
-          .select('*')
-          .eq('id', groupId)
-          .single()
-        if (groupError) throw groupError
-        setGroup(groupData)
-
+        const groupDoc = await getDoc(doc(db, 'groups', groupId))
+        if (!groupDoc.exists()) throw new Error('Group not found')
+        setGroup({ id: groupId, ...groupDoc.data() })
         // Fetch group members
-        const { data: membersData, error: membersError } = await supabase
-          .from('group_members')
-          .select('user_id, users(full_name, email, id)')
-          .eq('group_id', groupId)
-        if (membersError) throw membersError
-        setMembers(membersData.map(m => m.users))
-
+        const membersQ = query(collection(db, 'group_members'), where('group_id', '==', groupId))
+        const membersSnap = await getDocs(membersQ)
+        const memberIds = membersSnap.docs.map(doc => doc.data().user_id)
+        const memberProfiles = await Promise.all(memberIds.map(async (uid) => {
+          const userDoc = await getDoc(doc(db, 'users', uid))
+          return userDoc.exists() ? userDoc.data() : null
+        }))
+        setMembers(memberProfiles.filter(Boolean))
         // Fetch group expenses
-        const { data: expensesData, error: expensesError } = await supabase
-          .from('expenses')
-          .select('*')
-          .eq('group_id', groupId)
-        if (expensesError) throw expensesError
+        const expensesQ = query(collection(db, 'expenses'), where('group_id', '==', groupId))
+        const expensesSnap = await getDocs(expensesQ)
+        const expensesData = expensesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
         setExpenses(expensesData)
       } catch (err) {
         setError(err.message || 'Failed to load group details')
@@ -52,9 +47,6 @@ function GroupDetails({ user }) {
     fetchGroupDetails()
   }, [groupId])
 
-  if (loading) {
-    return <div className="container"><div className="header"><h1>Loading group...</h1></div></div>
-  }
   if (error) {
     return <div className="container"><div className="header"><h1>Error</h1><p>{error}</p></div></div>
   }

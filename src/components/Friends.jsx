@@ -1,44 +1,42 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Plus, UserPlus, DollarSign, TrendingUp, TrendingDown } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { collection, query, where, getDocs, addDoc, getDoc, doc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 function Friends({ user }) {
   const navigate = useNavigate()
   const [showAddFriend, setShowAddFriend] = useState(false)
-  const [newFriendName, setNewFriendName] = useState('')
   const [newFriendEmail, setNewFriendEmail] = useState('')
   const [friends, setFriends] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [addLoading, setAddLoading] = useState(false)
   const [addSuccess, setAddSuccess] = useState('')
 
   useEffect(() => {
     const fetchFriends = async () => {
-      if (!user?.id) return
-      
+      if (!user?.uid) return
       setLoading(true)
       setError('')
-      
       try {
-        const { data, error } = await supabase
-          .from('friends')
-          .select('friend_id, users:friend_id(full_name, email, id)')
-          .eq('user_id', user.id)
-        
-        if (error) throw error
-        
-        setFriends(data.map(f => f.users))
+        // Get all friend relationships for this user
+        const q = query(collection(db, 'friends'), where('user_id', '==', user.uid))
+        const querySnapshot = await getDocs(q)
+        const friendIds = querySnapshot.docs.map(doc => doc.data().friend_id)
+        // Fetch user profiles for each friend
+        const friendProfiles = await Promise.all(friendIds.map(async (fid) => {
+          const userDoc = await getDoc(doc(db, 'users', fid))
+          return userDoc.exists() ? userDoc.data() : null
+        }))
+        setFriends(friendProfiles.filter(Boolean))
       } catch (err) {
         setError(err.message || 'Failed to load friends')
       } finally {
         setLoading(false)
       }
     }
-
     fetchFriends()
-  }, [user?.id])
+  }, [user?.uid])
 
   const handleAddFriend = async (e) => {
     e.preventDefault();
@@ -46,58 +44,34 @@ function Friends({ user }) {
       alert('Please enter an email');
       return;
     }
-    setAddLoading(true);
     setAddSuccess('');
     try {
       // Check if already a friend
-      if (friends.some(f => f.email === newFriendEmail)) {
-        setAddLoading(false);
+      if (friends.some(f => f.email.toLowerCase() === newFriendEmail.trim().toLowerCase())) {
         alert('This user is already your friend.');
         return;
       }
-      // Find the friend user
-      const { data: friendUser, error: userError } = await supabase
-        .from('users')
-        .select('id, full_name, email')
-        .eq('email', newFriendEmail)
-        .single();
-      console.log('friendUser:', friendUser, 'userError:', userError);
-
-      if (userError && userError.code !== 'PGRST116') {
-        throw userError;
-      }
-      if (!friendUser) {
-        setAddLoading(false);
+      // Find the friend user by email
+      const q = query(collection(db, 'users'), where('email', '==', newFriendEmail.trim().toLowerCase()))
+      const querySnapshot = await getDocs(q)
+      if (querySnapshot.empty) {
         alert('User not found. Please ask your friend to sign up first.');
         return;
       }
+      const friendUser = querySnapshot.docs[0].data()
+      const friendId = querySnapshot.docs[0].id
       // Add friend relationship
-      const { error: friendError } = await supabase
-        .from('friends')
-        .insert([{ user_id: user.id, friend_id: friendUser.id }]);
-      console.log('friendError:', friendError);
-
-      if (friendError) {
-        setAddLoading(false);
-        alert(friendError.message || 'Failed to add friend');
-        return;
-      }
+      await addDoc(collection(db, 'friends'), {
+        user_id: user.uid,
+        friend_id: friendId
+      })
       // Refresh friends list
-      const { data: updatedFriends, error: fetchError } = await supabase
-        .from('friends')
-        .select('friend_id, users:friend_id(full_name, email, id)')
-        .eq('user_id', user.id);
-      console.log('updatedFriends:', updatedFriends, 'fetchError:', fetchError);
-
-      if (fetchError) throw fetchError;
-      setFriends(updatedFriends.map(f => f.users));
+      setFriends([...friends, friendUser])
       setNewFriendEmail('');
       setShowAddFriend(false);
       setAddSuccess('Friend added successfully!');
     } catch (err) {
       alert(err.message || 'Failed to add friend');
-    } finally {
-      setAddLoading(false);
     }
   }
 
@@ -125,7 +99,6 @@ function Friends({ user }) {
         <h1>Friends</h1>
         <p>Manage your friends and view balances</p>
       </div>
-
       <div className="card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
           <div style={{ display: 'flex', alignItems: 'center' }}>
@@ -147,7 +120,6 @@ function Friends({ user }) {
             Add Friend
           </button>
         </div>
-
         {showAddFriend && (
           <div className="modal-overlay">
             <div className="modal">
@@ -157,7 +129,6 @@ function Friends({ user }) {
                   onClick={() => setShowAddFriend(false)}
                   className="btn btn-secondary"
                   style={{ padding: '8px' }}
-                  disabled={addLoading}
                 >
                   ✕
                 </button>
@@ -171,7 +142,6 @@ function Friends({ user }) {
                     value={newFriendEmail}
                     onChange={(e) => setNewFriendEmail(e.target.value)}
                     placeholder="friend@example.com"
-                    disabled={addLoading}
                   />
                 </div>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
@@ -179,12 +149,11 @@ function Friends({ user }) {
                     type="button"
                     className="btn btn-secondary"
                     onClick={() => setShowAddFriend(false)}
-                    disabled={addLoading}
                   >
                     Cancel
                   </button>
-                  <button type="submit" className="btn" disabled={addLoading}>
-                    {addLoading ? 'Adding...' : (<><Plus size={16} style={{ marginRight: '8px' }} />Add Friend</>)}
+                  <button type="submit" className="btn">
+                    <><Plus size={16} style={{ marginRight: '8px' }} />Add Friend</>
                   </button>
                 </div>
               </form>
@@ -194,22 +163,6 @@ function Friends({ user }) {
         {addSuccess && (
           <div style={{ textAlign: 'center', color: '#38a169', margin: '16px 0' }}>{addSuccess}</div>
         )}
-
-        {loading && (
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <div style={{ 
-              width: '32px', 
-              height: '32px', 
-              border: '3px solid #e2e8f0',
-              borderTop: '3px solid #667eea',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-              margin: '0 auto 16px'
-            }}></div>
-            Loading friends...
-          </div>
-        )}
-
         {error && (
           <div style={{ 
             padding: '12px', 
@@ -221,8 +174,7 @@ function Friends({ user }) {
             {error}
           </div>
         )}
-
-        {!loading && !error && (
+        {!error && (
           <>
             {friends.length > 0 ? (
               <div className="friends-list">

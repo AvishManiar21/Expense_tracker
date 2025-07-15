@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Users, User, DollarSign, TrendingUp, TrendingDown, Calendar, Tag, Pencil } from 'lucide-react'
 import ExpenseDetails from './ExpenseDetails'
 import EditExpense from './EditExpense'
-import { supabase } from '../lib/supabase'
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 function Dashboard({ user, onSignOut }) {
   const navigate = useNavigate()
@@ -21,37 +22,33 @@ function Dashboard({ user, onSignOut }) {
       setLoading(true)
       setError('')
       try {
-        // Fetch groups where user is a member
-        const { data: groupMembers, error: groupMembersError } = await supabase
-          .from('group_members')
-          .select('group_id')
-          .eq('user_id', user?.id)
-        if (groupMembersError) throw groupMembersError
-        const groupIds = groupMembers.map(gm => gm.group_id)
-        // Fetch group details
+        // Fetch group memberships for this user
+        const groupMembersQ = query(collection(db, 'group_members'), where('user_id', '==', user?.uid))
+        const groupMembersSnap = await getDocs(groupMembersQ)
+        const groupIds = groupMembersSnap.docs.map(doc => doc.data().group_id)
         let groupData = []
         if (groupIds.length > 0) {
-          const { data: groupsData, error: groupsError } = await supabase
-            .from('groups')
-            .select('*')
-            .in('id', groupIds)
-          if (groupsError) throw groupsError
-          groupData = groupsData
+          // Fetch group details
+          const groupDocs = await Promise.all(groupIds.map(async (gid) => {
+            const gdoc = await getDoc(doc(db, 'groups', gid))
+            return gdoc.exists() ? { id: gid, ...gdoc.data() } : null
+          }))
+          groupData = groupDocs.filter(Boolean)
         }
         setGroups(groupData)
-        // Fetch friends (users who are friends with the user)
-        const { data: friendsData, error: friendsError } = await supabase
-          .from('friends')
-          .select('friend_id, users:friend_id(full_name, email, id)')
-          .eq('user_id', user?.id)
-        if (friendsError) throw friendsError
-        setFriends(friendsData.map(f => f.users))
-        // Fetch expenses where user is involved (paid_by or in expense_splits)
-        const { data: expensesData, error: expensesError } = await supabase
-          .from('expenses')
-          .select('*')
-          .or(`paid_by.eq.${user?.id},expense_splits.user_id.eq.${user?.id}`)
-        if (expensesError) throw expensesError
+        // Fetch friends
+        const friendsQ = query(collection(db, 'friends'), where('user_id', '==', user?.uid))
+        const friendsSnap = await getDocs(friendsQ)
+        const friendIds = friendsSnap.docs.map(doc => doc.data().friend_id)
+        const friendProfiles = await Promise.all(friendIds.map(async (fid) => {
+          const userDoc = await getDoc(doc(db, 'users', fid))
+          return userDoc.exists() ? userDoc.data() : null
+        }))
+        setFriends(friendProfiles.filter(Boolean))
+        // Fetch expenses (for now, fetch all expenses where paid_by == user.uid)
+        const expensesQ = query(collection(db, 'expenses'), where('paid_by', '==', user?.uid))
+        const expensesSnap = await getDocs(expensesQ)
+        const expensesData = expensesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
         setExpenses(expensesData)
       } catch (err) {
         setError(err.message || 'Failed to load data')
@@ -59,8 +56,8 @@ function Dashboard({ user, onSignOut }) {
         setLoading(false)
       }
     }
-    if (user?.id) fetchData()
-  }, [user?.id])
+    if (user?.uid) fetchData()
+  }, [user?.uid])
 
   const totalBalance = friends.reduce((sum, friend) => sum + friend.balance, 0)
 
@@ -77,6 +74,7 @@ function Dashboard({ user, onSignOut }) {
   }
 
   const getBalanceText = (balance) => {
+    if (typeof balance !== 'number' || isNaN(balance)) return 'Settled up';
     if (balance > 0) return `You owe $${balance.toFixed(2)}`
     if (balance < 0) return `You're owed $${Math.abs(balance).toFixed(2)}`
     return 'Settled up'
@@ -184,7 +182,7 @@ function Dashboard({ user, onSignOut }) {
           }}>
             <div style={{ fontSize: '24px', marginBottom: '8px' }}>💰</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold', color: getBalanceColor(totalBalance) }}>
-              ${Math.abs(totalBalance).toFixed(2)}
+              ${Number.isFinite(Math.abs(totalBalance)) ? Math.abs(totalBalance).toFixed(2) : '0.00'}
             </div>
             <div style={{ color: '#718096', fontSize: '14px' }}>
               {totalBalance > 0 ? 'You owe' : totalBalance < 0 ? 'You\'re owed' : 'All settled'}
@@ -239,14 +237,14 @@ function Dashboard({ user, onSignOut }) {
                     <span>{getCategoryIcon(expense.category)}</span>
                     <span style={{ fontWeight: 'bold' }}>{expense.description}</span>
                   </div>
-                  <span style={{ fontWeight: 'bold' }}>${expense.amount.toFixed(2)}</span>
+                  <span style={{ fontWeight: 'bold' }}>${Number.isFinite(expense.amount) ? expense.amount.toFixed(2) : '0.00'}</span>
                 </div>
                 <div style={{ fontSize: '14px', color: '#718096', marginBottom: '8px' }}>
                   Paid by {expense.paidBy} on {formatDate(expense.date)}
                 </div>
                 <div style={{ fontSize: '14px', color: '#4a5568' }}>
-                  {expense.splits.map(split => (
-                    <span key={split.personName} style={{ 
+                  {expense.splits.map((split, idx) => (
+                    <span key={split.personName + idx} style={{ 
                       display: 'inline-block',
                       marginRight: '12px',
                       padding: '4px 8px',
@@ -254,7 +252,7 @@ function Dashboard({ user, onSignOut }) {
                       borderRadius: '4px',
                       fontSize: '12px'
                     }}>
-                      {split.personName}: ${split.amount.toFixed(2)}
+                      {split.personName}: ${Number.isFinite(split.amount) ? split.amount.toFixed(2) : '0.00'}
                     </span>
                   ))}
                 </div>
@@ -375,7 +373,7 @@ function Dashboard({ user, onSignOut }) {
               </div>
               <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
                 <div style={{ fontWeight: 'bold', fontSize: '18px' }}>
-                  ${expense.amount.toFixed(2)}
+                  ${Number.isFinite(expense.amount) ? expense.amount.toFixed(2) : '0.00'}
                 </div>
                 <div style={{ fontSize: '12px', color: '#718096' }}>
                   Paid by {expense.paidBy}
@@ -405,8 +403,8 @@ function Dashboard({ user, onSignOut }) {
           </button>
         </div>
         <div className="friends-list">
-          {friends.slice(0, 3).map(friend => (
-            <div key={friend.name} className="friend-item">
+          {friends.slice(0, 3).map((friend, idx) => (
+            <div key={friend.id || friend.uid || (friend.name + idx)} className="friend-item">
               <div className="friend-info">
                 <div className="friend-avatar">
                   {friend.avatar}
@@ -421,7 +419,7 @@ function Dashboard({ user, onSignOut }) {
                 fontWeight: 'bold'
               }}>
                 {getBalanceIcon(friend.balance)}
-                ${Math.abs(friend.balance).toFixed(2)}
+                ${Number.isFinite(Math.abs(friend.balance)) ? Math.abs(friend.balance).toFixed(2) : '0.00'}
               </div>
             </div>
           ))}
@@ -440,8 +438,8 @@ function Dashboard({ user, onSignOut }) {
           </button>
         </div>
         <div className="groups-list">
-          {groups.slice(0, 3).map(group => (
-            <div key={group.name} className="group-item" style={{ 
+          {groups.slice(0, 3).map((group, idx) => (
+            <div key={group.id || (group.name + idx)} className="group-item" style={{ 
               border: '1px solid #e2e8f0', 
               borderRadius: '8px', 
               padding: '16px',
@@ -453,7 +451,7 @@ function Dashboard({ user, onSignOut }) {
                   <div>
                     <h4 style={{ margin: '0 0 4px 0' }}>{group.name}</h4>
                     <p style={{ color: '#718096', fontSize: '14px', margin: '0' }}>
-                      Total: ${group.totalExpenses.toFixed(2)}
+                      Total: ${Number.isFinite(group.totalExpenses) ? group.totalExpenses.toFixed(2) : '0.00'}
                     </p>
                   </div>
                 </div>
@@ -461,7 +459,7 @@ function Dashboard({ user, onSignOut }) {
                   color: getBalanceColor(group.yourBalance),
                   fontWeight: 'bold'
                 }}>
-                  ${Math.abs(group.yourBalance).toFixed(2)}
+                  ${Number.isFinite(Math.abs(group.yourBalance)) ? Math.abs(group.yourBalance).toFixed(2) : '0.00'}
                 </div>
               </div>
             </div>

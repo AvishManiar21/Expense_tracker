@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Filter, DollarSign, Plus, Minus, Users, Calendar } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 
 function ActivityFeed({ user }) {
   const navigate = useNavigate()
@@ -15,62 +16,45 @@ function ActivityFeed({ user }) {
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!user?.id) return
+      if (!user?.uid) return
       setLoading(true)
       setError('')
       try {
         // Fetch friends
-        const { data: friendsData, error: friendsError } = await supabase
-          .from('friends')
-          .select('friend_id, users:friend_id(full_name, email, id)')
-          .eq('user_id', user.id)
-        if (friendsError) throw friendsError
-        const realFriends = friendsData.map(f => f.users)
-        setFriends(realFriends)
-
+        const friendsQ = query(collection(db, 'friends'), where('user_id', '==', user.uid))
+        const friendsSnap = await getDocs(friendsQ)
+        const friendIds = friendsSnap.docs.map(doc => doc.data().friend_id)
+        const realFriends = await Promise.all(friendIds.map(async (fid) => {
+          const userDoc = await getDoc(doc(db, 'users', fid))
+          return userDoc.exists() ? userDoc.data() : null
+        }))
+        setFriends(realFriends.filter(Boolean))
         // Fetch groups
-        const { data: groupMembers, error: groupMembersError } = await supabase
-          .from('group_members')
-          .select('group_id')
-          .eq('user_id', user.id)
-        if (groupMembersError) throw groupMembersError
-        const groupIds = groupMembers.map(gm => gm.group_id)
+        const groupMembersQ = query(collection(db, 'group_members'), where('user_id', '==', user.uid))
+        const groupMembersSnap = await getDocs(groupMembersQ)
+        const groupIds = groupMembersSnap.docs.map(doc => doc.data().group_id)
         let groupList = []
         if (groupIds.length > 0) {
-          const { data: groupsData, error: groupsError } = await supabase
-            .from('groups')
-            .select('id, name')
-            .in('id', groupIds)
-          if (groupsError) throw groupsError
-          groupList = groupsData
+          const groupDocs = await Promise.all(groupIds.map(async (gid) => {
+            const gdoc = await getDoc(doc(db, 'groups', gid))
+            return gdoc.exists() ? { id: gid, ...gdoc.data() } : null
+          }))
+          groupList = groupDocs.filter(Boolean)
         }
         setGroups(groupList)
-
-        // Fetch expenses involving the user
-        const { data: expenses, error: expensesError } = await supabase
-          .from('expenses')
-          .select('*')
-          .or(`created_by.eq.${user.id},paid_by.eq.${user.id}`)
-        if (expensesError) throw expensesError
-
-        // Fetch settlements (if you have a settlements table, otherwise skip)
-        // const { data: settlements, error: settlementsError } = await supabase
-        //   .from('settlements')
-        //   .select('*')
-        //   .or(`from_user.eq.${user.id},to_user.eq.${user.id}`)
-        // if (settlementsError) throw settlementsError
-
-        // Combine activities (expenses + settlements)
-        // For now, just use expenses as activities
-        setActivities(expenses)
+        // Fetch activities (for now, fetch all expenses where paid_by == user.uid)
+        const expensesQ = query(collection(db, 'expenses'), where('paid_by', '==', user.uid))
+        const expensesSnap = await getDocs(expensesQ)
+        const activitiesData = expensesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+        setActivities(activitiesData)
       } catch (err) {
-        setError(err.message || 'Failed to load activity')
+        setError(err.message || 'Failed to load data')
       } finally {
         setLoading(false)
       }
     }
     fetchData()
-  }, [user])
+  }, [user?.uid])
 
   const getActivityIcon = (type) => {
     switch (type) {
@@ -205,11 +189,8 @@ function ActivityFeed({ user }) {
 
         {/* Activity List */}
         <div className="activity-list">
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '40px' }}>
-              <p>Loading activities...</p>
-            </div>
-          ) : error ? (
+          {/* Remove loading spinner, just show error or activities */}
+          {error ? (
             <div style={{ textAlign: 'center', padding: '40px', color: 'red' }}>
               Error: {error}
             </div>

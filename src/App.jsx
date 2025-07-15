@@ -10,9 +10,9 @@ import ActivityFeed from './components/ActivityFeed'
 import Login from './components/Login'
 import SignUp from './components/SignUp'
 import './App.css'
-import { supabase, upsertUserProfile } from './lib/supabase'
+import { onAuthStateChanged, signOut } from 'firebase/auth'
+import { auth } from './lib/firebase'
 
-// AuthRedirect component to handle redirect logic
 import { useLocation, useNavigate } from 'react-router-dom'
 function AuthRedirect({ isAuthenticated }) {
   const location = useLocation()
@@ -26,43 +26,25 @@ function AuthRedirect({ isAuthenticated }) {
 }
 
 function App() {
-  console.log('VITE_SUPABASE_URL:', import.meta.env.VITE_SUPABASE_URL)
-  console.log('VITE_SUPABASE_ANON_KEY:', import.meta.env.VITE_SUPABASE_ANON_KEY)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [user, setUser] = useState(null)
 
   useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('App.jsx: onAuthStateChange', event, session)
-      setIsAuthenticated(!!session)
-      setUser(session?.user || null)
-      if (session?.user) {
-        try {
-          await upsertUserProfile(session.user)
-        } catch (err) {
-          console.error('Profile upsert error:', err.message)
-        }
-      }
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setIsAuthenticated(!!firebaseUser)
+      setUser(firebaseUser)
     })
-    return () => {
-      listener?.subscription.unsubscribe()
-    }
+    return () => unsubscribe()
   }, [])
 
-
-
   const handleSignOut = async () => {
-    console.log('App.jsx: handleSignOut called')
     try {
-      await supabase.auth.signOut()
-      console.log('App.jsx: supabase.auth.signOut completed')
+      await signOut(auth)
     } catch (err) {
-      console.error('App.jsx: supabase.auth.signOut error', err)
+      console.error('Sign out error:', err)
     }
     setIsAuthenticated(false)
     setUser(null)
-    console.log('App.jsx: isAuthenticated set to', false)
-    console.log('App.jsx: user set to', null)
   }
 
   const ProtectedRoute = ({ children }) => {
@@ -123,10 +105,10 @@ function App() {
             } 
           />
           <Route 
-            path="/group/:groupId" 
+            path="/groups/:groupId" 
             element={
               <ProtectedRoute>
-                <GroupDetails />
+                <GroupDetails user={user} />
               </ProtectedRoute>
             } 
           />
@@ -142,13 +124,9 @@ function App() {
             path="/activity" 
             element={
               <ProtectedRoute>
-                <ActivityFeed />
+                <ActivityFeed user={user} />
               </ProtectedRoute>
             } 
-          />
-          <Route 
-            path="/" 
-            element={<Navigate to="/dashboard" replace />} 
           />
         </Routes>
       </div>
