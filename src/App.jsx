@@ -48,7 +48,11 @@ function App() {
   }
 
   const ProtectedRoute = ({ children }) => {
-    return isAuthenticated ? children : <Navigate to="/login" replace />
+    // Block access if not authenticated or not email verified
+    if (!isAuthenticated || !user || !user.emailVerified) {
+      return <Navigate to="/login" replace />
+    }
+    return children;
   }
 
   return (
